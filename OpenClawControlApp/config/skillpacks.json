@@ -1,0 +1,24 @@
+[
+  {
+    "extraInstructions" : [
+      "변경 파일과 검증 명령을 반드시 출력하라."
+    ],
+    "id" : "coding-strict",
+    "name" : "Coding Strict",
+    "skillTitles" : [
+      "정확성 우선",
+      "코딩 엄격"
+    ]
+  },
+  {
+    "extraInstructions" : [
+      "핵심 결론, 근거, 리스크 순서로 요약하라."
+    ],
+    "id" : "research-brief",
+    "name" : "Research Brief",
+    "skillTitles" : [
+      "정확성 우선",
+      "실행 우선"
+    ]
+  }
+]

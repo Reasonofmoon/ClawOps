@@ -1,0 +1,486 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROMPTS_DIR="${ROOT_DIR}/prompts"
+OUTPUT_DIR="${ROOT_DIR}/outputs"
+PRESETS_FILE="${ROOT_DIR}/presets/default.tsv"
+
+# Ensure GUI-launched shells can still find Homebrew + common bins.
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+
+OPENCLAW_BIN="${OPENCLAW_BIN:-}"
+if [[ -z "$OPENCLAW_BIN" ]]; then
+  if command -v openclaw >/dev/null 2>&1; then
+    OPENCLAW_BIN="$(command -v openclaw)"
+  elif [[ -x "/opt/homebrew/bin/openclaw" ]]; then
+    OPENCLAW_BIN="/opt/homebrew/bin/openclaw"
+  elif [[ -x "/usr/local/bin/openclaw" ]]; then
+    OPENCLAW_BIN="/usr/local/bin/openclaw"
+  else
+    OPENCLAW_BIN="openclaw"
+  fi
+fi
+
+SESSION_PREFIX="${SESSION_PREFIX:-assistant}"
+DEFAULT_THINKING="${DEFAULT_THINKING:-medium}"
+USE_LOCAL=1
+ASSISTANT_ENGINE="${ASSISTANT_ENGINE:-auto}" # auto|openclaw|claude
+
+CLAUDE_BIN="${CLAUDE_BIN:-}"
+if [[ -z "$CLAUDE_BIN" ]] && command -v claude >/dev/null 2>&1; then
+  CLAUDE_BIN="$(command -v claude)"
+fi
+if [[ -z "$CLAUDE_BIN" ]]; then
+  for cand in "/opt/homebrew/bin/claude" "/usr/local/bin/claude" "$HOME/.nvm/versions/node/$(node -v 2>/dev/null)/bin/claude"; do
+    if [[ -x "$cand" ]]; then
+      CLAUDE_BIN="$cand"
+      break
+    fi
+  done
+fi
+
+usage() {
+  cat <<'EOF'
+assistantctl - OpenClaw assistant control system
+
+Usage:
+  assistantctl help
+  assistantctl check
+  assistantctl ask "<request>" [--out <file>] [--thinking <level>] [--remote] [--cwd <dir>]
+  assistantctl quick <preset> [--out <file>] [--thinking <level>] [--remote] [--cwd <dir>]
+  assistantctl menu [--cwd <dir>]
+  assistantctl run <mode> "<request>" [--out <file>] [--thinking <level>] [--remote] [--cwd <dir>]
+
+Modes:
+  crawl | research | doc | content | code
+
+Commands:
+  help              Show help
+  check             Validate OpenClaw connectivity + web tool status
+  run               Run with explicit mode
+  ask               Auto-detect best mode from your request
+  quick             Run pre-defined preset from presets/default.tsv
+  menu              Interactive mode selector + prompt input
+
+Options:
+  --out <file>         Save response to file
+  --thinking <level>   off|minimal|low|medium|high (default: medium)
+  --remote             Do not use --local embedded mode
+  --cwd <dir>          Run analysis/fix against the target project directory
+
+Examples:
+  assistantctl ask "오픈소스 RAG 프레임워크 5개 비교해줘"
+  assistantctl quick bugfix
+  assistantctl menu
+  assistantctl run crawl "Crawl https://openclaw.ai and summarize key points."
+  assistantctl run code "Create a Python script that parses CSV and outputs JSON."
+  assistantctl run research "Compare local vector databases in 2026." --out outputs/rag-db.md
+  assistantctl quick bugfix-system --cwd /path/to/your/repo
+EOF
+}
+
+die() {
+  echo "Error: $*" >&2
+  exit 1
+}
+
+require_file() {
+  local path="$1"
+  [[ -f "$path" ]] || die "missing file: $path"
+}
+
+validate_mode() {
+  case "$1" in
+    crawl|research|doc|content|code) ;;
+    *) die "invalid mode '$1' (use: crawl|research|doc|content|code)" ;;
+  esac
+}
+
+detect_mode() {
+  local text
+  text="$(printf "%s" "$1" | tr '[:upper:]' '[:lower:]')"
+
+  if [[ "$text" =~ (크롤|crawl|스크랩|수집|링크|url|웹페이지|페이지) ]]; then
+    echo "crawl"
+    return
+  fi
+
+  if [[ "$text" =~ (조사|리서치|research|비교|근거|자료|시장|트렌드|benchmark|벤치마크) ]]; then
+    echo "research"
+    return
+  fi
+
+  if [[ "$text" =~ (문서|기획서|제안서|보고서|명세서|design doc|prd|초안) ]]; then
+    echo "doc"
+    return
+  fi
+
+  if [[ "$text" =~ (콘텐츠|블로그|포스트|카피|광고|뉴스레터|sns|마케팅|랜딩) ]]; then
+    echo "content"
+    return
+  fi
+
+  echo "code"
+}
+
+is_openclaw_auth_error() {
+  local text="$1"
+  local lower
+  lower="$(printf "%s" "$text" \
+    | sed -E $'s/\x1b\\[[0-9;?]*[ -/]*[@-~]//g' \
+    | tr -d '\r' \
+    | tr '[:upper:]' '[:lower:]')"
+  [[ "$lower" == *"http 401"* ]] \
+    || [[ "$lower" == *"authentication_error"* ]] \
+    || [[ "$lower" == *"invalid x-api-key"* ]] \
+    || [[ "$lower" == *"invalid api key"* ]] \
+    || [[ "$lower" == *"authentication failed"* ]] \
+    || [[ "$lower" == *"invalid anthropic api key"* ]]
+}
+
+build_message() {
+  local mode="$1"
+  local request="$2"
+  local core="${PROMPTS_DIR}/core.md"
+  local mode_prompt="${PROMPTS_DIR}/${mode}.md"
+
+  require_file "$core"
+  require_file "$mode_prompt"
+
+  {
+    cat "$core"
+    echo
+    cat "$mode_prompt"
+    echo
+    echo "## User Request"
+    echo "$request"
+  }
+}
+
+run_check() {
+  [[ -x "$OPENCLAW_BIN" || "$OPENCLAW_BIN" == "openclaw" ]] || die "openclaw binary not executable: $OPENCLAW_BIN"
+  command -v "$OPENCLAW_BIN" >/dev/null 2>&1 || [[ -x "$OPENCLAW_BIN" ]] || die "openclaw command not found (resolved: $OPENCLAW_BIN)"
+  "$OPENCLAW_BIN" --version
+  "$OPENCLAW_BIN" status >/dev/null
+  echo "OpenClaw is installed and status command is reachable."
+  echo "openclaw binary: $OPENCLAW_BIN"
+
+  if "$OPENCLAW_BIN" config get tools.web.fetch.enabled >/dev/null 2>&1; then
+    echo "web.fetch: $("$OPENCLAW_BIN" config get tools.web.fetch.enabled)"
+  else
+    echo "web.fetch: unknown"
+  fi
+
+  if "$OPENCLAW_BIN" config get tools.web.search.enabled >/dev/null 2>&1; then
+    echo "web.search: $("$OPENCLAW_BIN" config get tools.web.search.enabled)"
+  else
+    echo "web.search: unknown"
+  fi
+
+  if [[ -n "$CLAUDE_BIN" ]] && [[ -x "$CLAUDE_BIN" ]]; then
+    echo "claude fallback: enabled ($CLAUDE_BIN)"
+  else
+    echo "claude fallback: disabled (claude command not found)"
+  fi
+}
+
+parse_run_options() {
+  local out_file_ref="$1"
+  local thinking_ref="$2"
+  local use_local_ref="$3"
+  local run_cwd_ref="$4"
+  shift 4
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --out)
+        [[ $# -ge 2 ]] || die "--out requires a path"
+        printf -v "$out_file_ref" "%s" "$2"
+        shift 2
+        ;;
+      --thinking)
+        [[ $# -ge 2 ]] || die "--thinking requires a value"
+        printf -v "$thinking_ref" "%s" "$2"
+        shift 2
+        ;;
+      --remote)
+        printf -v "$use_local_ref" "0"
+        shift
+        ;;
+      --cwd)
+        [[ $# -ge 2 ]] || die "--cwd requires a directory path"
+        printf -v "$run_cwd_ref" "%s" "$2"
+        shift 2
+        ;;
+      *)
+        die "unknown option: $1"
+        ;;
+    esac
+  done
+}
+
+run_mode() {
+  local mode="$1"
+  local request="$2"
+  shift 2
+
+  local out_file=""
+  local thinking="$DEFAULT_THINKING"
+  local use_local="$USE_LOCAL"
+  local run_cwd="$PWD"
+
+  parse_run_options out_file thinking use_local run_cwd "$@"
+  [[ -d "$run_cwd" ]] || die "--cwd directory not found: $run_cwd"
+  run_cwd="$(cd "$run_cwd" && pwd)"
+
+  validate_mode "$mode"
+
+  local message
+  message="$(build_message "$mode" "$request")"
+
+  run_with_claude() {
+    local prompt="$1"
+    local save_path="${2:-}"
+    [[ -n "$CLAUDE_BIN" ]] || die "claude command not found for fallback"
+    local -a claude_cmd=("$CLAUDE_BIN" -p --output-format text "$prompt")
+    if [[ -n "$save_path" ]]; then
+      mkdir -p "$(dirname "$save_path")"
+      (cd "$run_cwd" && "${claude_cmd[@]}") | tee "$save_path"
+    else
+      (cd "$run_cwd" && "${claude_cmd[@]}")
+    fi
+  }
+
+  run_with_openclaw() {
+    local prompt="$1"
+    local save_path="${2:-}"
+    local session_id="${SESSION_PREFIX}-${mode}"
+    local -a cmd=(
+      "$OPENCLAW_BIN" agent
+      --session-id "$session_id"
+      --thinking "$thinking"
+      --message "$prompt"
+    )
+
+    if [[ "$use_local" -eq 1 ]]; then
+      cmd+=(--local)
+    fi
+
+    local tmp_log
+    tmp_log="$(mktemp)"
+    set +e
+    (cd "$run_cwd" && "${cmd[@]}") 2>&1 | tee "$tmp_log"
+    local cmd_status="${PIPESTATUS[0]}"
+    set -e
+
+    local log_text
+    log_text="$(cat "$tmp_log")"
+
+    # openclaw can print auth errors but still exit 0; treat as failure.
+    if is_openclaw_auth_error "$log_text"; then
+      rm -f "$tmp_log"
+      return 77
+    fi
+
+    if [[ "$cmd_status" -ne 0 ]]; then
+      rm -f "$tmp_log"
+      return "$cmd_status"
+    fi
+
+    if [[ -n "$save_path" ]]; then
+      mkdir -p "$(dirname "$save_path")"
+      cp "$tmp_log" "$save_path"
+    fi
+
+    rm -f "$tmp_log"
+    return 0
+  }
+
+  case "$ASSISTANT_ENGINE" in
+    claude)
+      run_with_claude "$message" "$out_file"
+      ;;
+    openclaw)
+      run_with_openclaw "$message" "$out_file"
+      ;;
+    auto|*)
+      local status=0
+      if run_with_openclaw "$message" "$out_file"; then
+        return 0
+      else
+        status="$?"
+      fi
+      if [[ "$status" -eq 77 && -n "$CLAUDE_BIN" ]]; then
+        echo "OpenClaw 인증 오류(401) 감지: Claude Code(GLM)로 자동 전환합니다." >&2
+        run_with_claude "$message" "$out_file"
+      elif [[ "$status" -eq 77 ]]; then
+        die "OpenClaw 인증 오류(401) 감지 + claude fallback 불가(claude 명령 없음)"
+      else
+        return "$status"
+      fi
+      ;;
+  esac
+}
+
+run_ask() {
+  local request="$1"
+  shift
+
+  local mode
+  mode="$(detect_mode "$request")"
+  echo "auto mode: $mode"
+  run_mode "$mode" "$request" "$@"
+}
+
+ensure_presets() {
+  if [[ ! -f "$PRESETS_FILE" ]]; then
+    mkdir -p "$(dirname "$PRESETS_FILE")"
+    cat >"$PRESETS_FILE" <<'EOF'
+# preset	mode	request
+bugfix	code	현재 저장소의 주요 버그 후보를 찾아 우선순위와 수정안을 제시하고 가능한 항목은 직접 수정하라.
+research-daily	research	오늘 기준으로 관련 도메인의 최신 이슈 5개를 조사하고 요약하라.
+doc-plan	doc	요청 주제에 대한 실행 계획 문서를 작성하라. 목표, 범위, 일정, 리스크를 포함하라.
+content-launch	content	신규 제품/기능 런칭 콘텐츠를 작성하라. 제목 3개와 본문 1개를 제공하라.
+crawl-brief	crawl	주어진 URL을 크롤링하고 핵심 사실/수치/날짜를 표로 정리하라.
+EOF
+  fi
+}
+
+run_quick() {
+  local preset="$1"
+  shift
+  ensure_presets
+
+  local line
+  line="$(awk -F'\t' -v p="$preset" '$0 !~ /^#/ && NF>=3 && $1==p {print; exit}' "$PRESETS_FILE")"
+  [[ -n "$line" ]] || die "preset not found: $preset"
+
+  local mode request
+  mode="$(printf "%s" "$line" | awk -F'\t' '{print $2}')"
+  request="$(printf "%s" "$line" | awk -F'\t' '{print $3}')"
+
+  echo "preset: $preset"
+  run_mode "$mode" "$request" "$@"
+}
+
+show_presets() {
+  ensure_presets
+  echo "Available presets:"
+  awk -F'\t' '$0 !~ /^#/ && NF>=3 {printf "  - %s (%s)\n", $1, $2}' "$PRESETS_FILE"
+}
+
+menu_select_mode() {
+  cat >&2 <<'EOF'
+모드를 선택하세요:
+  1) crawl
+  2) research
+  3) doc
+  4) content
+  5) code
+  6) auto (ask)
+  7) quick preset
+EOF
+  printf "번호 입력: " >&2
+  read -r pick
+
+  case "$pick" in
+    1) echo "crawl" ;;
+    2) echo "research" ;;
+    3) echo "doc" ;;
+    4) echo "content" ;;
+    5) echo "code" ;;
+    6) echo "auto" ;;
+    7) echo "quick" ;;
+    *) die "잘못된 선택: $pick" ;;
+  esac
+}
+
+run_menu() {
+  local run_cwd="${1:-$PWD}"
+  [[ -d "$run_cwd" ]] || die "--cwd directory not found: $run_cwd"
+  run_cwd="$(cd "$run_cwd" && pwd)"
+  mkdir -p "$OUTPUT_DIR"
+  local mode
+  mode="$(menu_select_mode)"
+
+  if [[ "$mode" == "quick" ]]; then
+    show_presets
+    printf "preset 이름 입력: "
+    local preset
+    read -r preset
+    local out_file="${OUTPUT_DIR}/quick-${preset}-$(date +%Y%m%d-%H%M%S).md"
+    run_quick "$preset" --out "$out_file" --cwd "$run_cwd"
+    echo "saved: $out_file"
+    return
+  fi
+
+  printf "요청 입력: "
+  local request
+  read -r request
+  [[ -n "$request" ]] || die "요청이 비어 있습니다."
+
+  local out_file="${OUTPUT_DIR}/${mode}-$(date +%Y%m%d-%H%M%S).md"
+  if [[ "$mode" == "auto" ]]; then
+    run_ask "$request" --out "$out_file" --cwd "$run_cwd"
+  else
+    run_mode "$mode" "$request" --out "$out_file" --cwd "$run_cwd"
+  fi
+  echo "saved: $out_file"
+}
+
+main() {
+  local sub="help"
+  local global_cwd="$PWD"
+  local -a args=()
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --cwd)
+        [[ $# -ge 2 ]] || die "--cwd requires a directory path"
+        global_cwd="$2"
+        shift 2
+        ;;
+      *)
+        args+=("$1")
+        shift
+        ;;
+    esac
+  done
+
+  [[ -d "$global_cwd" ]] || die "--cwd directory not found: $global_cwd"
+  global_cwd="$(cd "$global_cwd" && pwd)"
+  sub="${args[0]:-help}"
+
+  case "$sub" in
+    help|-h|--help)
+      usage
+      ;;
+    check)
+      run_check
+      ;;
+    ask)
+      [[ ${#args[@]} -ge 2 ]] || die "usage: assistantctl ask \"<request>\" [options]"
+      run_ask "${args[1]}" "${args[@]:2}" --cwd "$global_cwd"
+      ;;
+    quick)
+      [[ ${#args[@]} -ge 2 ]] || die "usage: assistantctl quick <preset> [options]"
+      run_quick "${args[1]}" "${args[@]:2}" --cwd "$global_cwd"
+      ;;
+    presets)
+      show_presets
+      ;;
+    menu)
+      run_menu "$global_cwd"
+      ;;
+    run)
+      [[ ${#args[@]} -ge 3 ]] || die "usage: assistantctl run <mode> \"<request>\" [options]"
+      run_mode "${args[1]}" "${args[2]}" "${args[@]:3}" --cwd "$global_cwd"
+      ;;
+    *)
+      die "unknown command: $sub (use: help|check|ask|quick|presets|menu|run)"
+      ;;
+  esac
+}
+
+main "$@"

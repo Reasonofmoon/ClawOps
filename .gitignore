@@ -1,0 +1,90 @@
+# =========================
+# OS / Editor junk
+# =========================
+.DS_Store
+**/.DS_Store
+Thumbs.db
+**/Thumbs.db
+*.swp
+*.swo
+*.tmp
+*.bak
+*~
+
+# =========================
+# Swift / Xcode build outputs
+# =========================
+.build/
+**/.build/
+.swiftpm/
+**/.swiftpm/
+DerivedData/
+**/DerivedData/
+xcuserdata/
+**/xcuserdata/
+*.xcuserstate
+**/*.xcuserstate
+*.xcworkspace/xcuserdata/
+**/*.xcworkspace/xcuserdata/
+
+# =========================
+# Logs / runtime artifacts
+# =========================
+*.log
+**/*.log
+logs/
+**/logs/
+outputs/
+**/outputs/
+tmp/
+**/tmp/
+.cache/
+**/.cache/
+
+# =========================
+# Local env / secrets
+# =========================
+.env
+.env.*
+**/.env
+**/.env.*
+*.pem
+*.key
+*.p12
+*.p8
+*.crt
+*.cer
+*.der
+*.jks
+*.keystore
+*.mobileprovision
+*.secret
+*.secrets
+**/*secret*
+**/*secrets*
+**/*token*
+**/*apikey*
+**/*api_key*
+**/*auth*
+**/*credential*
+**/*credentials*
+
+# =========================
+# OpenClaw / Claude local state
+# =========================
+.openclaw/
+**/.openclaw/
+openclaw.json
+**/openclaw.json
+.claude/
+**/.claude/
+
+# =========================
+# Node / toolchain artifacts
+# =========================
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*

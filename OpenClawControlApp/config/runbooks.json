@@ -1,0 +1,38 @@
+[
+  {
+    "id" : "missing-key",
+    "name" : "API 키 누락",
+    "recommendation" : "openclaw configure에서 모델/API 키를 먼저 설정하세요.",
+    "triggerPattern" : "api key"
+  },
+  {
+    "id" : "invalid-x-api-key",
+    "name" : "API 키 불일치",
+    "recommendation" : "현재 키가 선택한 공급자와 맞지 않습니다. 공급자별 키를 다시 매핑하거나 Claude fallback 경로를 사용하세요.",
+    "triggerPattern" : "invalid x-api-key"
+  },
+  {
+    "id" : "auth-401",
+    "name" : "인증 실패(401)",
+    "recommendation" : "401은 인증 토큰/키 불일치입니다. 모델 공급자와 키 타입(api-key vs token)을 점검하세요.",
+    "triggerPattern" : "http 401"
+  },
+  {
+    "id" : "command-not-found",
+    "name" : "명령 경로 오류",
+    "recommendation" : "종료코드 127은 명령 경로 문제일 가능성이 큽니다. /opt/homebrew/bin/openclaw 존재 여부와 PATH를 점검하세요.",
+    "triggerPattern" : "command not found"
+  },
+  {
+    "id" : "permission",
+    "name" : "권한 오류",
+    "recommendation" : "권한 설정(Accessibility/Automation/파일 접근)과 경로 권한을 확인하세요.",
+    "triggerPattern" : "operation not permitted"
+  },
+  {
+    "id" : "network",
+    "name" : "네트워크 오류",
+    "recommendation" : "DNS/네트워크 상태를 확인하고 동일 요청을 재시도하세요.",
+    "triggerPattern" : "could not resolve host"
+  }
+]

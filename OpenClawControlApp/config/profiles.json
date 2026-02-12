@@ -1,0 +1,20 @@
+[
+  {
+    "defaultPreset" : "bugfix",
+    "id" : "default",
+    "mode" : "auto",
+    "name" : "Default Safe",
+    "saveOutputToFile" : true,
+    "thinking" : "medium",
+    "useRemote" : false
+  },
+  {
+    "defaultPreset" : "research-daily",
+    "id" : "research",
+    "mode" : "research",
+    "name" : "Research Pro",
+    "saveOutputToFile" : true,
+    "thinking" : "high",
+    "useRemote" : false
+  }
+]

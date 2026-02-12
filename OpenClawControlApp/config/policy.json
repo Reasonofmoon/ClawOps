@@ -1,0 +1,8 @@
+{
+  "allowRemote" : false,
+  "blockedModes" : [
+
+  ],
+  "maxRequestCharacters" : 5000,
+  "requirePreflightPass" : true
+}
