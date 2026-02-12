@@ -5,7 +5,7 @@ OpenClaw CLI를 GUI로 조종하는 macOS SwiftUI 앱입니다.
 ## 기능
 
 - 모드 선택 실행: auto/crawl/research/doc/content/code
-- 프리셋 로딩 및 즉시 실행 (`/Users/soundfury37gmail.com/openclaw/presets/default.tsv`)
+- 프리셋 로딩 및 즉시 실행 (`$HOME/openclaw/presets/default.tsv`)
 - 프로필 관리 (적용/현재값 저장)
 - 스킬팩 관리 (적용/현재값 저장)
 - 정책 관리 (Remote 허용, Preflight 강제, 요청 길이 제한)
@@ -13,20 +13,20 @@ OpenClaw CLI를 GUI로 조종하는 macOS SwiftUI 앱입니다.
 - 실패 시 런북 추천 표시
 - 스킬 지시 체크박스 결합 실행
 - 상태 체크 / 실행 / 중단 / 로그 보기
-- 결과 파일 자동 저장 (`/Users/soundfury37gmail.com/openclaw/outputs`)
+- 결과 파일 자동 저장 (`$HOME/openclaw/outputs`)
 
 ## 설정 파일
 
 아래 JSON 파일을 수정하면 앱 동작 정책과 운영 구성을 바꿀 수 있습니다.
 
-- `/Users/soundfury37gmail.com/openclaw/OpenClawControlApp/config/profiles.json`
-- `/Users/soundfury37gmail.com/openclaw/OpenClawControlApp/config/skillpacks.json`
-- `/Users/soundfury37gmail.com/openclaw/OpenClawControlApp/config/policy.json`
-- `/Users/soundfury37gmail.com/openclaw/OpenClawControlApp/config/runbooks.json`
+- `$HOME/openclaw/OpenClawControlApp/config/profiles.json`
+- `$HOME/openclaw/OpenClawControlApp/config/skillpacks.json`
+- `$HOME/openclaw/OpenClawControlApp/config/policy.json`
+- `$HOME/openclaw/OpenClawControlApp/config/runbooks.json`
 
 ## 실행 방법
 
-1. Xcode에서 `/Users/soundfury37gmail.com/openclaw/OpenClawControlApp/Package.swift` 열기
+1. Xcode에서 `$HOME/openclaw/OpenClawControlApp/Package.swift` 열기
 2. 실행 대상(target) `OpenClawControlApp` 선택
 3. Scheme를 `Release`로 바꾼 뒤 Run (개발 중이 아니면 권장)
 
@@ -40,7 +40,7 @@ OpenClaw CLI를 GUI로 조종하는 macOS SwiftUI 앱입니다.
 
 앱은 내부적으로 다음 스크립트를 호출합니다.
 
-- `/Users/soundfury37gmail.com/openclaw/scripts/bot`
+- `$HOME/openclaw/scripts/bot`
 
 따라서 OpenClaw와 bot 스크립트가 정상 동작해야 합니다.
 
