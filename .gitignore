@@ -88,3 +88,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+
+# Local Swift build scratch
+OpenClawControlApp/.build-local/
+
+# Local Swift build scratch
+OpenClawControlApp/.build-local/
